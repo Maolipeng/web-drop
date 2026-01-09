@@ -39,7 +39,11 @@ function getLobbyList() {
   for (const [code, room] of rooms.entries()) {
     if (room.size === 1) {
       const [client] = room;
-      list.push({ code, name: client.displayName || "Anonymous" });
+      list.push({
+        code,
+        name: client.displayName || "Anonymous",
+        ownerId: client.id,
+      });
     }
   }
   return list;
@@ -190,6 +194,6 @@ app.get("/qr", async (req, res) => {
 });
 
 const port = process.env.PORT || 3030;
-server.listen(port, () => {
+server.listen(port, '0.0.0.0', () => {
   console.log(`web-drop listening on http://localhost:${port}`);
 });

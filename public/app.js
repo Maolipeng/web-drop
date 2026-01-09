@@ -47,9 +47,10 @@ let receiveQueue = [];
 let pendingApprovals = new Map();
 let lobbyRooms = [];
 let pendingJoin = null;
+let ownCode = "";
 let iceServers = [];
 
-const CHUNK_SIZE = 16 * 1024;
+const CHUNK_SIZE = 256 * 1024;
 
 function setStatus(text) {
   statusEl.textContent = text;
@@ -120,6 +121,7 @@ function resetTransfer() {
   }
   renderSendQueue();
   renderReceiveQueue();
+  ownCode = "";
 }
 
 function cleanupPeer() {
@@ -304,10 +306,14 @@ async function loadIceServers() {
   }
 }
 
-function connect() {
+function connect(options = {}) {
   const code = normalizeCode(codeInput.value);
   if (!code) {
     setStatus("请输入配对码");
+    return;
+  }
+  if (!options.allowSelf && ownCode && code === ownCode) {
+    setStatus("不能加入自己创建的配对码");
     return;
   }
   const payload = { code, name: nameInput.value.trim() };
@@ -384,6 +390,7 @@ async function sendFileData(item) {
   appendLog(`开始发送: ${file.name} (${formatBytes(file.size)})`);
   let offset = 0;
   const start = performance.now();
+  const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
   item.state = "sending";
   item.statusText = "发送中";
   renderSendQueue();
@@ -397,8 +404,13 @@ async function sendFileData(item) {
     sendBar.style.width = `${progress}%`;
     const elapsed = (performance.now() - start) / 1000;
     const speed = elapsed > 0 ? offset / elapsed : 0;
+    const remaining = file.size - offset;
+    const eta = speed > 0 ? remaining / speed : 0;
+    const sentChunks = Math.ceil(offset / CHUNK_SIZE);
     item.progress = progress;
-    item.metaText = `${formatBytes(offset)} / ${formatBytes(file.size)} · ${formatSpeed(speed)}`;
+    item.metaText = `${formatBytes(offset)} / ${formatBytes(file.size)} · ${sentChunks}/${totalChunks} 块 · ${formatSpeed(
+      speed
+    )} · 预计 ${formatDuration(eta)}`;
     renderSendQueue();
 
     if (dataChannel.bufferedAmount > 4 * 1024 * 1024) {
@@ -439,6 +451,14 @@ function formatBytes(bytes) {
 function formatSpeed(bytesPerSec) {
   if (!bytesPerSec || bytesPerSec <= 0) return "0 B/s";
   return `${formatBytes(bytesPerSec)}/s`;
+}
+
+function formatDuration(seconds) {
+  if (!seconds || !Number.isFinite(seconds) || seconds <= 0) return "0s";
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.round(seconds % 60);
+  return `${mins}m ${secs}s`;
 }
 
 function createId() {
@@ -482,12 +502,13 @@ async function hashBlob(blob) {
 function renderLobby() {
   if (!deviceList || !deviceEmpty) return;
   deviceList.textContent = "";
-  if (!lobbyRooms.length) {
+  const visibleRooms = lobbyRooms.filter((room) => room.ownerId !== socket.id);
+  if (!visibleRooms.length) {
     deviceEmpty.hidden = false;
     return;
   }
   deviceEmpty.hidden = true;
-  lobbyRooms.forEach((room) => {
+  visibleRooms.forEach((room) => {
     const card = document.createElement("div");
     card.className = "device-card";
     const meta = document.createElement("div");
@@ -659,21 +680,37 @@ function handleSendApproval(message) {
   }
 }
 
+function queueWrite(chunk) {
+  if (!activeReceive || !activeReceive.writer) return;
+  if (!activeReceive.writeChain) {
+    activeReceive.writeChain = Promise.resolve();
+  }
+  activeReceive.writeChain = activeReceive.writeChain.then(() => activeReceive.writer.write(chunk));
+}
+
 function handleIncomingChunk(chunk) {
   if (!activeReceive || !receiveMeta) {
     return;
   }
-  receiveBuffer.push(chunk);
+  if (activeReceive.writer) {
+    queueWrite(chunk);
+  } else {
+    receiveBuffer.push(chunk);
+  }
   receiveSize += chunk.byteLength;
   const progress = Math.min(100, Math.round((receiveSize / receiveMeta.size) * 100));
   receiveBar.style.width = `${progress}%`;
   const elapsed = (performance.now() - activeReceive.startedAt) / 1000;
   const speed = elapsed > 0 ? receiveSize / elapsed : 0;
+  const totalChunks = Math.ceil(receiveMeta.size / CHUNK_SIZE);
+  const receivedChunks = Math.ceil(receiveSize / CHUNK_SIZE);
+  const remaining = receiveMeta.size - receiveSize;
+  const eta = speed > 0 ? remaining / speed : 0;
   activeReceive.entry.progress = progress;
   activeReceive.entry.statusText = "接收中";
   activeReceive.entry.metaText = `${formatBytes(receiveSize)} / ${formatBytes(
     receiveMeta.size
-  )} · ${formatSpeed(speed)}`;
+  )} · ${receivedChunks}/${totalChunks} 块 · ${formatSpeed(speed)} · 预计 ${formatDuration(eta)}`;
   renderReceiveQueue();
   if (receiveSize >= receiveMeta.size) {
     finalizeReceive();
@@ -684,30 +721,47 @@ async function finalizeReceive() {
   if (!activeReceive || !receiveMeta) return;
   activeReceive.entry.statusText = "校验中";
   renderReceiveQueue();
-  const blob = new Blob(receiveBuffer, { type: receiveMeta.mime || "application/octet-stream" });
-  const actualHash = await hashBlob(blob);
-  const expectedHash = receiveMeta.hash || "";
-  let hashLabel = "未提供";
-  let hashMatch = true;
-  if (expectedHash && actualHash) {
-    hashMatch = actualHash === expectedHash;
-    hashLabel = hashMatch ? "匹配" : "不一致";
-  } else if (expectedHash && !actualHash) {
-    hashMatch = true;
-    hashLabel = "未校验";
+  if (activeReceive.writer) {
+    try {
+      await activeReceive.writeChain;
+      await activeReceive.writer.close();
+      activeReceive.entry.progress = 100;
+      activeReceive.entry.statusText = "完成";
+      activeReceive.entry.metaText = `${formatBytes(receiveMeta.size)} · 已保存`;
+      renderReceiveQueue();
+      appendLog("接收完成，已保存到本地");
+    } catch (err) {
+      activeReceive.entry.statusText = "保存失败";
+      activeReceive.entry.metaText = "写入失败";
+      renderReceiveQueue();
+      appendLog("接收失败：保存文件出错");
+    }
+  } else {
+    const blob = new Blob(receiveBuffer, { type: receiveMeta.mime || "application/octet-stream" });
+    const actualHash = await hashBlob(blob);
+    const expectedHash = receiveMeta.hash || "";
+    let hashLabel = "未提供";
+    let hashMatch = true;
+    if (expectedHash && actualHash) {
+      hashMatch = actualHash === expectedHash;
+      hashLabel = hashMatch ? "匹配" : "不一致";
+    } else if (expectedHash && !actualHash) {
+      hashMatch = true;
+      hashLabel = "未校验";
+    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = receiveMeta?.name || "file";
+    a.click();
+    URL.revokeObjectURL(url);
+    activeReceive.entry.progress = 100;
+    activeReceive.entry.statusText = hashMatch ? "完成" : "校验失败";
+    activeReceive.entry.metaText = `${formatBytes(receiveMeta.size)} · SHA-256 ${hashLabel}`;
+    renderReceiveQueue();
+    appendLog(hashMatch ? "接收完成，已保存到本地" : "接收完成，但校验失败");
+    receiveBuffer = [];
   }
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = receiveMeta?.name || "file";
-  a.click();
-  URL.revokeObjectURL(url);
-  activeReceive.entry.progress = 100;
-  activeReceive.entry.statusText = hashMatch ? "完成" : "校验失败";
-  activeReceive.entry.metaText = `${formatBytes(receiveMeta.size)} · SHA-256 ${hashLabel}`;
-  renderReceiveQueue();
-  appendLog(hashMatch ? "接收完成，已保存到本地" : "接收完成，但校验失败");
-  receiveBuffer = [];
   receiveMeta = null;
   receiveSize = 0;
   receiveDone = false;
@@ -739,7 +793,7 @@ function showNextReceivePrompt() {
   }
 }
 
-function acceptIncoming() {
+async function acceptIncoming() {
   if (!pendingReceive || !dataChannel || dataChannel.readyState !== "open") return;
   const entry = pendingReceive;
   entry.state = "accepted";
@@ -749,7 +803,19 @@ function acceptIncoming() {
   receiveBuffer = [];
   receiveSize = 0;
   receiveDone = false;
-  activeReceive = { entry, startedAt: performance.now() };
+  activeReceive = { entry, startedAt: performance.now(), writer: null, writeChain: null };
+  if (window.showSaveFilePicker) {
+    entry.statusText = "选择保存位置";
+    renderReceiveQueue();
+    try {
+      const handle = await window.showSaveFilePicker({ suggestedName: entry.name });
+      activeReceive.writer = await handle.createWritable();
+      activeReceive.writeChain = Promise.resolve();
+      entry.statusText = "接收中";
+    } catch (err) {
+      entry.statusText = "接收中";
+    }
+  }
   dataChannel.send(JSON.stringify({ type: "file-accept", id: entry.id }));
   pendingReceive = null;
   hideReceiveModal();
@@ -812,7 +878,8 @@ createBtn.addEventListener("click", () => {
   codeInput.value = generateCode();
   setStatus("已生成配对码，等待对方加入");
   updateQr(codeInput.value);
-  connect();
+  ownCode = normalizeCode(codeInput.value);
+  connect({ allowSelf: true });
 });
 
 joinBtn.addEventListener("click", () => {
