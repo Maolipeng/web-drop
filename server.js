@@ -190,6 +190,6 @@ app.get("/qr", async (req, res) => {
 });
 
 const port = process.env.PORT || 3030;
-server.listen(port, "0.0.0.0", () => {
-  console.log(`web-drop listening on http://0.0.0.0:${port}`);
+server.listen(port, () => {
+  console.log(`web-drop listening on http://localhost:${port}`);
 });

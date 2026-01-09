@@ -1,0 +1,14 @@
+version: "3.9"
+
+services:
+  web-drop:
+    build: .
+    container_name: web-drop
+    ports:
+      - "3000:3000"
+    environment:
+      - STUN_URLS=stun:stun.l.google.com:19302
+      - TURN_URLS=
+      - TURN_USERNAME=
+      - TURN_CREDENTIAL=
+    restart: unless-stopped

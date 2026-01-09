@@ -55,6 +55,17 @@ function setStatus(text) {
   statusEl.textContent = text;
 }
 
+function warnInsecureHost() {
+  const host = location.hostname;
+  if (host === "0.0.0.0") {
+    setStatus("请用 http://localhost 或 HTTPS 访问，0.0.0.0 无法用于扫码");
+    return;
+  }
+  if (location.protocol !== "https:" && host !== "localhost" && host !== "127.0.0.1") {
+    setStatus("非 HTTPS 环境扫码不可用，请改用 HTTPS 或 localhost");
+  }
+}
+
 function appendLog(text) {
   logEl.textContent = `${new Date().toLocaleTimeString()} ${text}\n${logEl.textContent}`.trim();
 }
@@ -776,7 +787,8 @@ async function startScan() {
         codeInput.value = normalizeCode(value);
         updateQr(codeInput.value);
         stopScan();
-        setStatus("已识别配对码");
+        setStatus("已识别配对码，正在加入...");
+        connect();
         return;
       }
       requestAnimationFrame(scanLoop);
@@ -808,7 +820,7 @@ joinBtn.addEventListener("click", () => {
 });
 
 scanBtn.addEventListener("click", () => {
-  startScan();
+  setStatus("扫码已禁用，请手动输入配对码");
 });
 
 scanClose.addEventListener("click", () => {
@@ -873,3 +885,4 @@ window.addEventListener("beforeunload", () => {
 });
 
 loadIceServers();
+warnInsecureHost();

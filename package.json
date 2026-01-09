@@ -2,6 +2,7 @@
   "name": "web-drop",
   "version": "0.1.0",
   "private": true,
+  "author": "Maolipeng <m384861046g@gmail.com> (https://github.com/Maolipeng/web-drop)",
   "description": "LAN WebRTC file drop with local signaling",
   "main": "server.js",
   "scripts": {
