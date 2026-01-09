@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Web Drop</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=Noto+Sans+SC:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="hero">
+        <h1>Web Drop</h1>
+        <p>同一局域网内用浏览器点对点传文件</p>
+      </header>
+
+      <section class="card" id="connect-card">
+        <h2>配对</h2>
+        <div class="pairing-grid">
+          <div class="pairing-main">
+            <div class="row">
+              <label>
+                昵称
+                <input id="name-input" type="text" placeholder="可选" maxlength="40" />
+              </label>
+              <label>
+                配对码
+                <input id="code-input" type="text" placeholder="如 4F7KQ2" maxlength="12" />
+              </label>
+            </div>
+            <div class="row actions">
+              <button id="create-btn" class="primary">生成配对码</button>
+              <button id="join-btn">加入</button>
+              <button id="scan-btn">扫码</button>
+            </div>
+            <div class="status" id="status">等待配对</div>
+            <div class="device-section">
+              <div class="device-title">在线设备</div>
+              <div class="device-list" id="device-list"></div>
+              <div class="device-empty" id="device-empty">暂无可加入设备</div>
+            </div>
+          </div>
+          <div class="pairing-side">
+            <div class="qr-wrap">
+              <img id="qr-img" alt="配对二维码" width="160" height="160" />
+              <div class="qr-note">扫码或输入配对码</div>
+            </div>
+            <div class="scan-area" id="scan-area" hidden>
+              <video id="scan-video" autoplay muted playsinline></video>
+              <button id="scan-close" class="ghost">关闭扫码</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" id="transfer-card">
+        <h2>文件传输</h2>
+        <div class="row">
+          <input id="file-input" type="file" multiple />
+          <button id="send-btn" class="primary" disabled>发送</button>
+        </div>
+        <div class="queue">
+          <div class="queue-title">发送队列</div>
+          <div class="queue-list" id="send-queue"></div>
+        </div>
+        <div class="progress">
+          <div class="bar" id="send-bar"></div>
+        </div>
+        <div class="progress secondary">
+          <div class="bar" id="receive-bar"></div>
+        </div>
+        <div class="queue">
+          <div class="queue-title">接收队列</div>
+          <div class="queue-list" id="receive-queue"></div>
+        </div>
+        <div class="log" id="log"></div>
+        <div class="chat">
+          <h3>聊天</h3>
+          <div class="chat-list" id="chat-list"></div>
+          <div class="chat-toolbar">
+            <input id="chat-input" type="text" placeholder="输入消息（支持表情）" disabled />
+            <input id="chat-image-input" type="file" accept="image/*" hidden />
+            <button id="chat-image-btn" class="ghost" disabled>图片</button>
+            <button id="chat-send-btn" class="primary" disabled>发送</button>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div class="modal hidden" id="receive-modal">
+      <div class="modal-card">
+        <div class="modal-title">接收文件</div>
+        <div class="modal-body">
+          <div class="modal-file" id="modal-file-name"></div>
+          <div class="modal-meta" id="modal-file-meta"></div>
+          <div class="modal-hash" id="modal-file-hash"></div>
+        </div>
+        <div class="modal-actions">
+          <button id="modal-reject" class="ghost">拒绝</button>
+          <button id="modal-accept" class="primary">同意</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
