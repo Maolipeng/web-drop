@@ -133,6 +133,44 @@ app.get("/health", (_req, res) => {
   res.json({ ok: true });
 });
 
+app.get("/config", (_req, res) => {
+  const iceServers = [];
+  const stunUrls = String(process.env.STUN_URLS || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (stunUrls.length) {
+    iceServers.push({ urls: stunUrls });
+  }
+
+  const turnUrls = String(process.env.TURN_URLS || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (turnUrls.length) {
+    iceServers.push({
+      urls: turnUrls,
+      username: process.env.TURN_USERNAME || "",
+      credential: process.env.TURN_CREDENTIAL || "",
+    });
+  }
+
+  if (process.env.ICE_SERVERS_JSON) {
+    try {
+      const parsed = JSON.parse(process.env.ICE_SERVERS_JSON);
+      if (Array.isArray(parsed)) {
+        res.json({ iceServers: parsed });
+        return;
+      }
+    } catch (err) {
+      res.status(400).json({ error: "Invalid ICE_SERVERS_JSON" });
+      return;
+    }
+  }
+
+  res.json({ iceServers });
+});
+
 app.get("/qr", async (req, res) => {
   const code = normalizeCode(req.query.code || "");
   if (!code) {
@@ -151,7 +189,7 @@ app.get("/qr", async (req, res) => {
   }
 });
 
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 3030;
 server.listen(port, "0.0.0.0", () => {
   console.log(`web-drop listening on http://0.0.0.0:${port}`);
 });

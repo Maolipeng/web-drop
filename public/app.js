@@ -47,6 +47,7 @@ let receiveQueue = [];
 let pendingApprovals = new Map();
 let lobbyRooms = [];
 let pendingJoin = null;
+let iceServers = [];
 
 const CHUNK_SIZE = 16 * 1024;
 
@@ -123,7 +124,7 @@ function cleanupPeer() {
 }
 
 function initPeerConnection() {
-  peer = new RTCPeerConnection({ iceServers: [] });
+  peer = new RTCPeerConnection({ iceServers });
 
   peer.onicecandidate = (event) => {
     if (event.candidate) {
@@ -278,6 +279,19 @@ socket.on("disconnect", () => {
   setStatus("信令连接已关闭");
   cleanupPeer();
 });
+
+async function loadIceServers() {
+  try {
+    const res = await fetch("/config");
+    if (!res.ok) return;
+    const data = await res.json();
+    if (Array.isArray(data.iceServers)) {
+      iceServers = data.iceServers;
+    }
+  } catch (err) {
+    // ignore config fetch errors
+  }
+}
 
 function connect() {
   const code = normalizeCode(codeInput.value);
@@ -857,3 +871,5 @@ nameInput.addEventListener("input", () => {
 window.addEventListener("beforeunload", () => {
   socket.emit("leave");
 });
+
+loadIceServers();
