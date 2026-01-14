@@ -49,6 +49,7 @@ let lobbyRooms = [];
 let pendingJoin = null;
 let ownCode = "";
 let iceServers = [];
+let disconnectTimer = null;
 
 const CHUNK_SIZE = 256 * 1024;
 
@@ -133,6 +134,10 @@ function cleanupPeer() {
     peer.close();
     peer = null;
   }
+  if (disconnectTimer) {
+    clearTimeout(disconnectTimer);
+    disconnectTimer = null;
+  }
   resetTransfer();
 }
 
@@ -147,7 +152,28 @@ function initPeerConnection() {
 
   peer.onconnectionstatechange = () => {
     setStatus(`连接状态: ${peer.connectionState}`);
-    if (["failed", "disconnected", "closed"].includes(peer.connectionState)) {
+    if (peer.connectionState === "connected") {
+      if (disconnectTimer) {
+        clearTimeout(disconnectTimer);
+        disconnectTimer = null;
+      }
+      if (dataChannel && dataChannel.readyState === "open") {
+        enableTransfer(true);
+      }
+      return;
+    }
+    if (peer.connectionState === "disconnected") {
+      appendLog("连接暂时中断，等待恢复...");
+      if (disconnectTimer) {
+        clearTimeout(disconnectTimer);
+      }
+      disconnectTimer = setTimeout(() => {
+        appendLog("连接未恢复，已断开");
+        cleanupPeer();
+      }, 8000);
+      return;
+    }
+    if (["failed", "closed"].includes(peer.connectionState)) {
       appendLog("连接已断开");
       cleanupPeer();
     }
@@ -185,6 +211,9 @@ function setupDataChannel(channel) {
     appendLog("数据通道已建立");
     enableTransfer(true);
   }
+  dataChannel.onerror = () => {
+    appendLog("数据通道出错");
+  };
   dataChannel.onmessage = (event) => {
     if (typeof event.data === "string") {
       const message = JSON.parse(event.data);
@@ -315,6 +344,12 @@ function connect(options = {}) {
   if (!options.allowSelf && ownCode && code === ownCode) {
     setStatus("不能加入自己创建的配对码");
     return;
+  }
+  if (peer || dataChannel) {
+    if (socket.connected) {
+      socket.emit("leave");
+    }
+    cleanupPeer();
   }
   const payload = { code, name: nameInput.value.trim() };
   if (socket.connected) {
